@@ -1,0 +1,15 @@
+# Bundle patch: insert the Prompt Craft Host row.
+# The Client half is loaded from this package's "./client" export through the
+# manifest's `dsh.client` section; no second row is needed for it.
+#
+# To pin the model this plugin rewrites with, set the row config:
+#
+#   - insert:
+#       - id: prompt-craft
+#         name: dsh-plugin-prompt-craft
+#         config:
+#           provider: deepseek-official
+#           model: deepseek-flash
+- insert:
+    - id: prompt-craft
+      name: dsh-plugin-prompt-craft

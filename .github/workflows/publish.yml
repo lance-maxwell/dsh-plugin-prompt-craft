@@ -1,0 +1,29 @@
+# 发布到 npm：只有推送 v* tag 时触发。
+# 需要在本仓库 Settings → Secrets and variables → Actions 里配置 NPM_TOKEN。
+# 没配 token 的话，这个 workflow 会失败；可以先用 PUBLISHING.md 里的本地 npm publish。
+name: publish
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Test before publish
+        run: node test/run-tests.mjs
+      - name: Publish
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

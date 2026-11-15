@@ -1,0 +1,63 @@
+{
+  "name": "dsh-plugin-prompt-craft",
+  "version": "1.0.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "Rewrite messy, rambling input into a plain-spoken, well-laid-out prompt without losing a word of its meaning, then inject it into the composer with one click — standard / concise / detailed / structured.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "prompt",
+    "prompt-engineer",
+    "composer"
+  ],
+  "icon": "./icon.svg",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "icon.svg",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "test/run-tests.mjs"
+  ],
+  "scripts": {
+    "test": "node test/run-tests.mjs",
+    "prepublishOnly": "node test/run-tests.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lance-maxwell/dsh-plugin-prompt-craft.git"
+  },
+  "homepage": "https://github.com/lance-maxwell/dsh-plugin-prompt-craft#readme",
+  "bugs": {
+    "url": "https://github.com/lance-maxwell/dsh-plugin-prompt-craft/issues"
+  },
+  "author": "Neko",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  }
+}

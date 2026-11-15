@@ -1,9 +1,9 @@
 {
   "name": "dsh-plugin-prompt-craft",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "license": "MIT",
-  "description": "Rewrite messy, rambling input into a plain-spoken, well-laid-out prompt without losing a word of its meaning, then inject it into the composer with one click — standard / concise / detailed / structured.",
+  "description": "把凌乱、冗长的输入改写成清晰提示词，一键注入输入框；支持标准 / 精简 / 详细 / 结构化。",
   "keywords": [
     "dsh",
     "dsh-plugin",

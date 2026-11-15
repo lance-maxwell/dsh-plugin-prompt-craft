@@ -63,14 +63,14 @@ git push -u origin main
 ### 打 tag（给用户钉版本）
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.0.2
+git push origin v1.0.2
 ```
 
 用户就能填：
 
 ```text
-github:lance-maxwell/dsh-plugin-prompt-craft#v1.0.0
+github:lance-maxwell/dsh-plugin-prompt-craft#v1.0.2
 ```
 
 ## 2. 发 npm（想“在市场里按包名装”就走这条）
@@ -131,5 +131,5 @@ npm publish --access public
 - [ ] `npm pack --dry-run` 里没有 `node_modules`、日志、本机路径
 - [ ] 没有 cookie、token、个人路径、聊天记录
 - [ ] `files` 包含 `index.js`、`client.js`、`cordis.patch.yml`、`icon.svg`、`README.md`、`LICENSE`
-- [ ] 版本号与 tag 一致（`1.0.0` ↔ `v1.0.0`）
+- [ ] 版本号与 tag 一致（`1.0.2` ↔ `v1.0.2`）
 - [ ] 在干净的 profile 里试装一次

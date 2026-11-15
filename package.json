@@ -1,9 +1,9 @@
 {
   "name": "dsh-plugin-prompt-craft",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "license": "MIT",
-  "description": "把凌乱、冗长的输入改写成清晰提示词，一键注入输入框；支持标准 / 精简 / 详细 / 结构化。",
+  "description": "把凌乱、冗长的输入改写成清晰提示词，一键注入输入框；支持标准 / 精简 / 详细 / 结构化，可回退原文。",
   "keywords": [
     "dsh",
     "dsh-plugin",

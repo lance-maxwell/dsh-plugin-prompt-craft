@@ -33,8 +33,13 @@ window.__ModuleLoader__.load({
       'panel.copied': '已复制到剪贴板',
       'panel.fill': '仅填入输入框',
       'panel.fillSend': '注入并发送',
+      'panel.revert': '回退原文',
+      'panel.reverted': '已回退到原始文字',
+      'undo.label': '回退',
+      'undo.title': '回到改写前的原始文字',
+      'undo.done': '已回退到改写前的文字',
       'panel.noComposer': '当前没有可写入的输入框，请先进入一个会话。',
-      'panel.filled': '已注入输入框，按 Enter 发送',
+      'panel.filled': '已注入输入框，按 Enter 发送；再点「提示词」可以回退原文',
       'panel.sent': '已注入并发送',
       'panel.failed': '改写失败',
       'panel.mode': '模式',
@@ -68,8 +73,13 @@ window.__ModuleLoader__.load({
       'panel.copied': 'Copied to the clipboard',
       'panel.fill': 'Fill the composer',
       'panel.fillSend': 'Inject & send',
+      'panel.revert': 'Revert to original',
+      'panel.reverted': 'Reverted to the original text',
+      'undo.label': 'Undo',
+      'undo.title': 'Go back to the text before the rewrite',
+      'undo.done': 'Reverted to the pre-rewrite text',
       'panel.noComposer': 'No composer to write into right now — open a session first.',
-      'panel.filled': 'Injected into the composer — press Enter to send',
+      'panel.filled': 'Injected — press Enter to send; reopen Prompt to revert to the original.',
       'panel.sent': 'Injected and sent',
       'panel.failed': 'Rewrite failed',
       'panel.mode': 'Mode',
@@ -89,8 +99,8 @@ window.__ModuleLoader__.load({
   height: 26px; padding: 0 8px; margin: 0 2px;
   border: .5px solid var(--dsw-alias-border-l2, rgba(127,127,127,.28));
   border-radius: var(--dsw-radius-md, 8px);
-  background: transparent; cursor: pointer; font-family: inherit; font-size: 12px; line-height: 18px;
-  color: var(--dsw-alias-label-secondary, #a8a8ad);
+  background: var(--dsw-alias-bg-layer-1, transparent); cursor: pointer; font-family: inherit; font-size: 12px; line-height: 18px;
+  color: var(--dsw-alias-label-primary, #f5f5f5);
   transition: background .12s ease, color .12s ease;
 }
 .pc-tool:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.14)); color: var(--dsw-alias-label-primary, #f5f5f5); }
@@ -171,8 +181,14 @@ window.__ModuleLoader__.load({
 .pc-btn:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #4d6bfe); outline-offset: 1px; }
 .pc-btn-outline { border: .5px solid var(--dsw-alias-border-l3, rgba(127,127,127,.4)); }
 .pc-btn-outline:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.14)); }
-.pc-btn-primary { background: var(--dsw-alias-brand-primary, #4d6bfe); color: #fff; font-weight: 500; }
+.pc-btn-primary {
+  background: var(--dsw-alias-brand-primary, #4d6bfe);
+  color: var(--dsw-alias-bg-base, #fff);
+  font-weight: 600;
+  border: 1px solid transparent;
+}
 .pc-btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
+.pc-btn-primary:disabled { opacity: .55; }
 .pc-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .pc-toast {
   pointer-events: auto; position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 1001;
@@ -204,12 +220,18 @@ window.__ModuleLoader__.load({
     const panelStore = createStore({
       open: false,
       source: '',
+      original: '',
       mode: 'standard',
       busy: false,
       result: null,
       error: null,
     })
+    const rewriteCache = new Map()
+    const CACHE_LIMIT = 40
+    let rewriteSeq = 0
+    let lastInjection = null
     const toastStore = createStore(null)
+    const undoStore = createStore(null)
     let lastMode = 'standard'
     const composer = { setDraft: null, submit: null, sessionId: '', draft: null }
 
@@ -269,6 +291,15 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function UndoIcon() {
+      return h(
+        'svg',
+        { viewBox: '0 0 16 16', width: 13, height: 13, fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+        h('path', { d: 'M5.5 5.5H10a3 3 0 010 6H6.5' }),
+        h('path', { d: 'M7.5 3.5L5.5 5.5l2 2' }),
+      )
+    }
+
     async function callHost(endpoint, payload) {
       try {
         const response = await fetch(ROUTE, {
@@ -290,18 +321,43 @@ window.__ModuleLoader__.load({
       }
     }
 
-    async function runRewrite(source, mode) {
+    function cacheKey(source, mode) {
+      return `${mode}\u0000${source}`
+    }
+
+    function rememberRewrite(source, mode, result) {
+      const key = cacheKey(source, mode)
+      rewriteCache.delete(key)
+      rewriteCache.set(key, result)
+      while (rewriteCache.size > CACHE_LIMIT) {
+        const oldest = rewriteCache.keys().next().value
+        if (oldest === undefined) break
+        rewriteCache.delete(oldest)
+      }
+    }
+
+    async function runRewrite(source, mode, options = {}) {
+      const seq = ++rewriteSeq
       const current = panelStore.get()
       if (source.trim() === '') {
-        panelStore.set({ ...current, mode, busy: false, result: null, error: { message: 'empty-source' } })
+        panelStore.set({ ...current, source, original: current.original || source, mode, busy: false, result: null, error: { message: 'empty-source' } })
         return
       }
-      panelStore.set({ ...current, mode, busy: true, error: null, result: null })
+      const cached = rewriteCache.get(cacheKey(source, mode))
+      if (cached !== undefined && options.force !== true) {
+        panelStore.set({ ...current, source, original: current.original || source, mode, busy: false, result: cached, error: null })
+        return
+      }
+      panelStore.set({ ...current, source, original: current.original || source, mode, busy: true, error: null, result: null })
       const outcome = await callHost('polish', { text: source, mode })
       const latest = panelStore.get()
-      if (latest.open === false) return
-      if (outcome.ok === true) panelStore.set({ ...latest, busy: false, result: outcome.value, error: null })
-      else panelStore.set({ ...latest, busy: false, result: null, error: { message: outcome.message } })
+      if (latest.open === false || seq !== rewriteSeq) return
+      if (outcome.ok === true) {
+        rememberRewrite(source, mode, outcome.value)
+        panelStore.set({ ...latest, busy: false, result: outcome.value, error: null })
+      } else {
+        panelStore.set({ ...latest, busy: false, result: null, error: { message: outcome.message } })
+      }
     }
 
     function notify(text, error = false) {
@@ -309,12 +365,18 @@ window.__ModuleLoader__.load({
     }
 
     function openPanel(draft) {
-      const source = typeof draft === 'string' ? draft : ''
-      panelStore.set({ open: true, source, mode: lastMode, busy: source.trim() !== '', result: null, error: null })
+      rewriteSeq += 1
+      const draftText = typeof draft === 'string' ? draft : ''
+      const restore = lastInjection !== null
+        && lastInjection.sessionId === composer.sessionId
+        && lastInjection.prompt === draftText
+      const source = restore ? lastInjection.original : draftText
+      panelStore.set({ open: true, source, original: source, mode: lastMode, busy: false, result: null, error: null })
       if (source.trim() !== '') void runRewrite(source, lastMode)
     }
 
     function closePanel() {
+      rewriteSeq += 1
       const current = panelStore.get()
       if (current.busy === false) {
         panelStore.set({ ...current, open: false })
@@ -330,12 +392,22 @@ window.__ModuleLoader__.load({
         notify(t('panel.noComposer'), true)
         return
       }
+      const state = panelStore.get()
+      const original = typeof composer.draft === 'string' && composer.draft !== ''
+        ? composer.draft
+        : (typeof state.original === 'string' ? state.original : '')
+      if (original !== '' && original !== prompt) {
+        lastInjection = { sessionId: composer.sessionId, original, prompt }
+      }
       try {
         composer.setDraft(prompt)
       } catch (error) {
         notify(`写入输入框失败：${error instanceof Error ? error.message : String(error)}`, true)
         return
       }
+      undoStore.set(original !== '' && original !== prompt
+        ? { sessionId: composer.sessionId, original, prompt }
+        : null)
       closePanel()
       if (send !== true) {
         notify(t('panel.filled'))
@@ -396,6 +468,47 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function PromptCraftUndoButton(props) {
+      const t = translator(props.t)
+      const inputActions = props.inputActions ?? props.inject?.inputActions
+      const useInput = props.useInput ?? props.inject?.useInput
+      const sessionId = typeof props.sessionId === 'string' ? props.sessionId : ''
+      const undo = useStoreValue(undoStore)
+      const useDraft = typeof useInput === 'function' ? useInput : null
+      const draft = useDraft === null ? '' : useDraft((state) => (state !== null && typeof state?.draft === 'string' ? state.draft : ''))
+      React.useEffect(() => {
+        composer.setDraft = typeof inputActions?.setDraft === 'function' ? inputActions.setDraft : null
+        composer.sessionId = sessionId
+        composer.draft = draft
+      }, [inputActions, sessionId, draft])
+      if (undo === null || undo.sessionId !== sessionId || undo.prompt !== draft) return null
+      return h(
+        'button',
+        {
+          type: 'button',
+          className: 'pc-tool',
+          title: t('undo.title'),
+          'aria-label': t('undo.title'),
+          onClick: () => {
+            if (typeof composer.setDraft !== 'function') {
+              notify(t('panel.noComposer'), true)
+              return
+            }
+            try {
+              composer.setDraft(undo.original)
+            } catch (error) {
+              notify(`写入输入框失败：${error instanceof Error ? error.message : String(error)}`, true)
+              return
+            }
+            undoStore.set(null)
+            notify(t('undo.done'))
+          },
+        },
+        h(UndoIcon, null),
+        h('span', { className: 'pc-tool-label' }, t('undo.label')),
+      )
+    }
+
     function ModeRow({ state, t }) {
       return h(
         'div',
@@ -413,11 +526,12 @@ window.__ModuleLoader__.load({
               if (state.mode === mode.id && state.result !== null) return
               lastMode = mode.id
               const current = panelStore.get()
-              if (current.source.trim() === '') {
+              const base = current.original !== '' ? current.original : current.source
+              if (base.trim() === '') {
                 panelStore.set({ ...current, mode: mode.id, result: null, error: null })
                 return
               }
-              void runRewrite(current.source, mode.id)
+              void runRewrite(base, mode.id)
             },
           },
           t(mode.key),
@@ -486,12 +600,14 @@ window.__ModuleLoader__.load({
                 onChange: (event) => {
                   const next = event.target.value
                   const current = panelStore.get()
-                  panelStore.set({ ...current, source: next, result: null, error: null })
+                  panelStore.set({ ...current, source: next, original: next, result: null, error: null })
                 },
                 onKeyDown: (event) => {
                   if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
                     event.preventDefault()
-                    void runRewrite(panelStore.get().source, panelStore.get().mode)
+                    const current = panelStore.get()
+                    const base = current.original !== '' ? current.original : current.source
+                    void runRewrite(base, current.mode)
                   }
                 },
               })),
@@ -532,6 +648,24 @@ window.__ModuleLoader__.load({
                 h('button', {
                   type: 'button',
                   className: 'pc-btn pc-btn-outline',
+                  disabled: state.original === '' || state.result === null,
+                  onClick: () => {
+                    const current = panelStore.get()
+                    panelStore.set({ ...current, source: current.original, result: null, error: null })
+                    if (typeof composer.setDraft === 'function') {
+                      try {
+                        composer.setDraft(current.original)
+                      } catch {
+                        // The panel still shows the original; the composer is best-effort.
+                      }
+                    }
+                    undoStore.set(null)
+                    notify(t('panel.reverted'))
+                  },
+                }, t('panel.revert')),
+                h('button', {
+                  type: 'button',
+                  className: 'pc-btn pc-btn-outline',
                   disabled: prompt === '',
                   onClick: async () => {
                     try {
@@ -569,13 +703,27 @@ window.__ModuleLoader__.load({
       ctx.effect(() => insertStyles(STYLES), 'prompt-craft: styles')
       ctx.effect(() => ctx.locale.register(NS, { zh: ZH, en: EN }), 'prompt-craft: dictionaries')
 
-      ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
-        name: 'conversation.input.left',
-        id: 'prompt-craft.toolbar',
-        order: 40,
-        locale: NS,
-        inject: () => ({}),
-      }, PromptCraftButton))
+      ctx.slots.inject('conversation.input.left', () => {
+        const registered = [
+          ctx.slots.register({
+            name: 'conversation.input.left',
+            id: 'prompt-craft.toolbar',
+            order: 40,
+            locale: NS,
+            inject: () => ({}),
+          }, PromptCraftButton),
+          ctx.slots.register({
+            name: 'conversation.input.left',
+            id: 'prompt-craft.undo',
+            order: 41,
+            locale: NS,
+            inject: () => ({}),
+          }, PromptCraftUndoButton),
+        ]
+        return () => {
+          for (const dispose of registered) if (typeof dispose === 'function') dispose()
+        }
+      })
 
       ctx.slots.inject('shell.overlay', () => ctx.slots.register({
         name: 'shell.overlay',
@@ -586,6 +734,6 @@ window.__ModuleLoader__.load({
       }, PromptCraftPanel))
     }
 
-    return { inject, apply, MODES, PromptCraftButton, PromptCraftPanel, openPanel, closePanel, injectPrompt }
+    return { inject, apply, MODES, PromptCraftButton, PromptCraftUndoButton, PromptCraftPanel, openPanel, closePanel, injectPrompt }
   },
 })

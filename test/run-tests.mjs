@@ -367,9 +367,10 @@ async function loadClient() {
   }
   exported.apply(ctx)
   const slots = registrations.filter((entry) => typeof entry.name === 'string')
-  checkEqual('two slots are contributed', slots.map((entry) => entry.name), ['conversation.input.left', 'shell.overlay'])
+  checkEqual('three slots are contributed', slots.map((entry) => entry.name), ['conversation.input.left', 'conversation.input.left', 'shell.overlay'])
   checkEqual('the composer button keeps its id', slots[0].id, 'prompt-craft.toolbar')
-  checkEqual('the panel keeps its id', slots[1].id, 'prompt-craft.panel')
+  checkEqual('the undo button sits beside it', slots[1].id, 'prompt-craft.undo')
+  checkEqual('the panel keeps its id', slots[2].id, 'prompt-craft.panel')
   check('both slots name this bundle as their locale namespace',
     slots.every((entry) => entry.locale === 'promptCraft'))
   check('both slots carry a component', slots.every((entry) => typeof entry.component === 'function'))
@@ -447,6 +448,129 @@ async function loadClient() {
   checkEqual('the selected chip is pressed', chips[0].props['aria-pressed'], true)
   check('the primary action is one-click inject-and-send',
     text.includes('注入并发送'))
+}
+
+{
+  // The undo pill appears after a fill and restores the pre-rewrite draft.
+  const { exported, stub } = await loadClient()
+  const drafts = ['原始文字']
+  const actions = { setDraft: (text) => drafts.push(text), submit: () => {} }
+  const baseProps = {
+    inputActions: actions,
+    useInput: (selector) => selector({ draft: drafts[0] }),
+    sessionId: 's',
+    t: undefined,
+  }
+  render(stub, 'button', exported.PromptCraftButton, baseProps)
+  exported.injectPrompt('改写后的文字', false)
+  await tick(5)
+  checkEqual('fill writes the rewritten draft', drafts.at(-1), '改写后的文字')
+
+  const undo = render(stub, 'undo', exported.PromptCraftUndoButton, {
+    ...baseProps,
+    useInput: (selector) => selector({ draft: '改写后的文字' }),
+  })
+  check('the undo pill appears after a fill', undo !== null)
+  check('the undo pill says 回退', textOf(undo).join('').includes('回退'))
+  undo.props.onClick()
+  checkEqual('undo restores the original draft', drafts.at(-1), '原始文字')
+}
+
+{
+  // Cache: the same original text + mode must not call the host twice.
+  const { exported, stub } = await loadClient()
+  let calls = 0
+  globalThis.fetch = async (_url, init) => {
+    calls += 1
+    const payload = JSON.parse(init.body).payload
+    return {
+      ok: true,
+      json: async () => ({
+        ok: true,
+        value: {
+          prompt: `${payload.mode} → ${payload.text}`,
+          mode: payload.mode,
+          engine: 'llm',
+          note: '',
+          fidelity: { missing: [] },
+        },
+      }),
+    }
+  }
+  const actions = { setDraft: () => {}, submit: () => {} }
+  const props = { inputActions: actions, useInput: (selector) => selector({ draft: MESSY }), sessionId: 's', t: undefined }
+  render(stub, 'button', exported.PromptCraftButton, props)
+  exported.openPanel(MESSY)
+  await tick(20)
+  checkEqual('the first open triggers one rewrite', calls, 1)
+
+  let tree = render(stub, 'panel', exported.PromptCraftPanel, { t: undefined })
+  let chips = elementsOf(tree, 'button').filter((node) => node.props.className === 'pc-mode')
+  chips[1].props.onClick()
+  await tick(20)
+  checkEqual('switching mode triggers a second rewrite', calls, 2)
+
+  tree = render(stub, 'panel', exported.PromptCraftPanel, { t: undefined })
+  chips = elementsOf(tree, 'button').filter((node) => node.props.className === 'pc-mode')
+  chips[0].props.onClick()
+  await tick(20)
+  checkEqual('switching back uses the cached result', calls, 2)
+  check('the cached preview is the standard one', textOf(render(stub, 'panel', exported.PromptCraftPanel, { t: undefined })).join('').includes('standard →'))
+}
+
+{
+  // Revert: the original text goes back into the source box and the composer.
+  const { exported, stub } = await loadClient()
+  const drafts = []
+  globalThis.fetch = async (_url, init) => ({
+    ok: true,
+    json: async () => ({
+      ok: true,
+      value: { prompt: '# 改写结果', mode: JSON.parse(init.body).payload.mode, engine: 'llm', note: '', fidelity: { missing: [] } },
+    }),
+  })
+  const actions = { setDraft: (text) => drafts.push(text), submit: () => {} }
+  const props = { inputActions: actions, useInput: (selector) => selector({ draft: MESSY }), sessionId: 's', t: undefined }
+  render(stub, 'button', exported.PromptCraftButton, props)
+  exported.openPanel(MESSY)
+  await tick(20)
+
+  const tree = render(stub, 'panel', exported.PromptCraftPanel, { t: undefined })
+  const revert = elementsOf(tree, 'button').find((node) => textOf(node).join('').includes('回退原文'))
+  check('the panel offers a revert button', revert !== undefined)
+  check('revert is enabled once there is a rewrite', revert.props.disabled === false)
+  revert.props.onClick()
+  await tick(5)
+
+  const after = render(stub, 'panel', exported.PromptCraftPanel, { t: undefined })
+  const area = elementsOf(after, 'textarea')[0]
+  checkEqual('revert restores the source box', area.props.value, MESSY)
+  checkEqual('revert restores the composer', drafts.at(-1), MESSY)
+}
+
+{
+  // Reopening after a fill must start from the original, not the rewritten draft.
+  const { exported, stub } = await loadClient()
+  globalThis.fetch = async (_url, init) => ({
+    ok: true,
+    json: async () => ({
+      ok: true,
+      value: { prompt: '# 改写结果', mode: JSON.parse(init.body).payload.mode, engine: 'llm', note: '', fidelity: { missing: [] } },
+    }),
+  })
+  const actions = { setDraft: () => {}, submit: () => {} }
+  const props = { inputActions: actions, useInput: (selector) => selector({ draft: MESSY }), sessionId: 's', t: undefined }
+  render(stub, 'button', exported.PromptCraftButton, props)
+  exported.openPanel(MESSY)
+  await tick(20)
+  exported.injectPrompt('# 改写结果', false)
+  await tick(5)
+  exported.openPanel('# 改写结果')
+  await tick(20)
+
+  const tree = render(stub, 'panel', exported.PromptCraftPanel, { t: undefined })
+  const area = elementsOf(tree, 'textarea')[0]
+  checkEqual('reopening after fill restores the original source', area.props.value, MESSY)
 }
 
 {
